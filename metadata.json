@@ -1,0 +1,5 @@
+{
+  "name": "Path Planning Studio",
+  "description": "Advanced autonomous racing trajectory planner with physics-based constraints, 3D track editing, and real-time telemetry analysis.",
+  "requestFramePermissions": []
+}
