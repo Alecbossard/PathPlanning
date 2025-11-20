@@ -22,7 +22,6 @@ interface SceneProps {
   racePaths?: { laplacian: PathPoint[], qp: PathPoint[], rrt: PathPoint[] };
   onConeMove: (id: string, x: number, z: number) => void;
   onConeSelect: (id: string | null) => void;
-  onAddCone: (x: number, z: number) => void;
 }
 
 // --- Dynamic Shadow System ---
@@ -86,18 +85,11 @@ const DynamicDirectionalLight: React.FC<{ isNight: boolean }> = ({ isNight }) =>
 
 // Handle Ground Clicks
 const EditorGroundInteraction: React.FC<{ 
-  mode: EditorState['mode']; 
-  onAddCone: (x: number, z: number) => void;
   onDeselect: () => void;
-}> = ({ mode, onAddCone, onDeselect }) => {
+}> = ({ onDeselect }) => {
   
   const handleClick = (e: any) => {
-    if (mode === 'ADD_BLUE' || mode === 'ADD_YELLOW') {
-      e.stopPropagation();
-      onAddCone(e.point.x, e.point.z);
-    } else {
-      onDeselect();
-    }
+    onDeselect();
   };
 
   return (
@@ -126,8 +118,7 @@ const Scene3D: React.FC<SceneProps> = ({
   raceMode = false,
   racePaths,
   onConeMove, 
-  onConeSelect, 
-  onAddCone
+  onConeSelect
 }) => {
   // Strict camera control: Only enable orbit controls if specifically in ORBIT mode.
   // Other modes are driven programmatically by the Car component.
@@ -168,8 +159,6 @@ const Scene3D: React.FC<SceneProps> = ({
         />
         
         <EditorGroundInteraction 
-          mode={editorState.mode} 
-          onAddCone={onAddCone} 
           onDeselect={() => onConeSelect(null)}
         />
 

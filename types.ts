@@ -35,6 +35,7 @@ export interface PathPoint {
   x: number;
   y: number;
   z: number; // Elevation
+  trackWidth?: number;
   dist: number; // Cumulative distance from start
   curvature: number; // 1/Radius
   maxVelocity: number; // Calculated limit based on friction
@@ -58,5 +59,5 @@ export interface TrackMetadata {
 export interface EditorState {
   selectedConeId: string | null;
   isDragging: boolean;
-  mode: 'VIEW' | 'EDIT' | 'ADD_BLUE' | 'ADD_YELLOW';
+  mode: 'VIEW' | 'EDIT';
 }

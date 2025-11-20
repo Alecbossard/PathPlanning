@@ -5,14 +5,18 @@ import LandingPage from './components/LandingPage';
 import AlgorithmsPage from './components/AlgorithmsPage';
 import SimulationsPage from './components/SimulationsPage';
 import { ConeData, ConeType, EditorState, PathPoint, TrackMetadata, CameraMode, OptimizerMode } from './types';
-import { calculateCenterline, generateDetailedPath, generateId, getTrackMetadata, parseTrackData, optimizeRacingLine, optimizeRRTStar, optimizeQP, optimizeHybrid, optimizeRRTQP } from './services/mathUtils';
-import { TRACK_CSVS } from './constants';
+import { calculateCenterline, generateDetailedPath, generateId, getTrackMetadata, parseTrackData, optimizeRacingLine, optimizeRRTStar, optimizeQP, optimizeHybrid, optimizeRRTQP, fetchGithubTracks } from './services/mathUtils';
+import { TRACK_CSVS, TRACK_NAMES } from './constants';
 import * as THREE from 'three';
 
 const App: React.FC = () => {
   // --- State ---
   const [view, setView] = useState<'LANDING' | 'APP' | 'ALGORITHMS' | 'SIMULATIONS'>('LANDING');
-  const [currentTrackKey, setCurrentTrackKey] = useState<string>('small_track');
+  
+  // Store tracks fetched from GitHub
+  const [externalTracks, setExternalTracks] = useState<Record<string, string>>({});
+  const [currentTrackKey, setCurrentTrackKey] = useState<string>('');
+  
   const [cones, setCones] = useState<ConeData[]>([]);
   
   const [roadPathData, setRoadPathData] = useState<PathPoint[]>([]);
@@ -44,15 +48,34 @@ const App: React.FC = () => {
 
   // --- Initialization ---
   useEffect(() => {
-    if (view === 'APP') {
+    // Load community tracks on startup
+    fetchGithubTracks().then(tracks => {
+        setExternalTracks(tracks);
+        const keys = Object.keys(tracks);
+        if (keys.length > 0) {
+            // Auto-select first track if current is invalid
+            setCurrentTrackKey(prev => tracks[prev] ? prev : keys[0]);
+        }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (view === 'APP' && currentTrackKey) {
       loadTrack(currentTrackKey);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTrackKey, view]);
+  }, [currentTrackKey, view, externalTracks]);
 
   // --- Logic ---
   const loadTrack = (key: string) => {
-    const csv = TRACK_CSVS[key as keyof typeof TRACK_CSVS];
+    // Cast to Record<string, string> because TRACK_CSVS is initially empty {} in constants.ts
+    let csv = (TRACK_CSVS as Record<string, string>)[key];
+    
+    // If not found in default tracks, look in external tracks
+    if (!csv && externalTracks[key]) {
+        csv = externalTracks[key];
+    }
+
     if (csv) {
       const loadedCones = parseTrackData(csv);
       setCones(loadedCones);
@@ -165,24 +188,6 @@ const App: React.FC = () => {
     ));
   };
 
-  const handleAddCone = (x: number, z: number, typeOverride?: ConeType) => {
-    let type = ConeType.BLUE;
-    if (typeOverride) {
-      type = typeOverride;
-    } else if (editorState.mode === 'ADD_BLUE') {
-      type = ConeType.BLUE;
-    } else if (editorState.mode === 'ADD_YELLOW') {
-      type = ConeType.YELLOW;
-    }
-    setCones(prev => [...prev, {
-      id: generateId(),
-      x,
-      y: z,
-      z: 0, 
-      type
-    }]);
-  };
-
   const handleConeSelect = (id: string | null) => {
     setEditorState(prev => ({ ...prev, selectedConeId: null }));
   };
@@ -259,6 +264,31 @@ const App: React.FC = () => {
   // (Otherwise they perfectly overlap and it looks buggy).
   const visibleGhostPath = (showGhost && optimizerMode !== OptimizerMode.RRT_QP) ? ghostPathData : undefined;
 
+  // Prepare Options List for UI
+  const trackOptions = useMemo(() => {
+    const options = [];
+    // Default Tracks
+    for (const key in TRACK_NAMES) {
+        options.push({ 
+            value: key, 
+            label: (TRACK_NAMES as Record<string, string>)[key],
+            isCommunity: false 
+        });
+    }
+    // External Tracks
+    for (const key in externalTracks) {
+        // Filter out duplicates if any
+        if (!(TRACK_NAMES as Record<string, string>)[key]) {
+            options.push({ 
+                value: key, 
+                label: `🌍 ${key.replace(/_/g, ' ')}`, 
+                isCommunity: true 
+            });
+        }
+    }
+    return options;
+  }, [externalTracks]);
+
   return (
     <div className="w-full h-screen relative overflow-hidden select-none">
       {view === 'LANDING' ? (
@@ -266,6 +296,7 @@ const App: React.FC = () => {
             onSelectTrack={handleTrackSelect} 
             onShowAlgorithms={() => setView('ALGORITHMS')}
             onShowSimulations={() => setView('SIMULATIONS')}
+            availableTracks={Object.keys(externalTracks)}
         />
       ) : view === 'ALGORITHMS' ? (
         <AlgorithmsPage onBack={handleHome} />
@@ -288,7 +319,6 @@ const App: React.FC = () => {
             racePaths={racePaths}
             onConeMove={handleConeMove}
             onConeSelect={handleConeSelect}
-            onAddCone={(x, z) => handleAddCone(x, z)}
           />
           
           <UIOverlay 
@@ -297,6 +327,7 @@ const App: React.FC = () => {
             editorState={editorState}
             isPlaying={isPlaying}
             currentTrack={currentTrackKey}
+            trackOptions={trackOptions}
             cameraMode={cameraMode}
             isNight={isNight}
             optimizerMode={optimizerMode}

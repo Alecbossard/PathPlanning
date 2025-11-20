@@ -5,6 +5,43 @@ import { PHYSICS, VISUALS } from '../constants';
 // --- Helper: Generate UUID ---
 export const generateId = () => Math.random().toString(36).substring(2, 9);
 
+// --- Service: Fetch Community Tracks from GitHub ---
+export const fetchGithubTracks = async (): Promise<Record<string, string>> => {
+  const API_URL = "https://api.github.com/repos/guilhem0908/PathPlanning/contents/data";
+  try {
+    const response = await fetch(API_URL);
+    if (!response.ok) {
+        console.warn("Could not fetch GitHub tracks list");
+        return {};
+    }
+    
+    const files = await response.json();
+    if (!Array.isArray(files)) return {};
+
+    const csvFiles = files.filter((f: any) => f.name && f.name.endsWith('.csv'));
+    const tracks: Record<string, string> = {};
+    
+    console.log(`Found ${csvFiles.length} community tracks on GitHub.`);
+
+    await Promise.all(csvFiles.map(async (file: any) => {
+       try {
+         const res = await fetch(file.download_url);
+         const text = await res.text();
+         // Use filename without extension as key
+         const key = file.name.replace('.csv', '');
+         tracks[key] = text;
+       } catch (err) {
+         console.warn(`Failed to download track content: ${file.name}`, err);
+       }
+    }));
+    
+    return tracks;
+  } catch (e) {
+    console.error("Error connecting to GitHub tracks repository", e);
+    return {};
+  }
+};
+
 // --- Helper: Parse CSV ---
 export const parseTrackData = (csv: string): ConeData[] => {
   const lines = csv.split('\n');
@@ -45,9 +82,6 @@ export const optimizeRacingLine = (centerPoints: THREE.Vector3[]): THREE.Vector3
   const iterations = 20; 
   const smoothingFactor = 0.3; // Pull towards neighbors
   
-  // Track Boundary Constraint (Hard limit for visuals)
-  const MAX_DEVIATION = 1.9; 
-
   const getIdx = (i: number, len: number) => (i + len) % len;
 
   for (let iter = 0; iter < iterations; iter++) {
@@ -67,14 +101,19 @@ export const optimizeRacingLine = (centerPoints: THREE.Vector3[]): THREE.Vector3
       newPos[i].x += (avgX - curr.x) * smoothingFactor;
       newPos[i].z += (avgZ - curr.z) * smoothingFactor;
       
-      // Constraint Solver
+      // Constraint Solver (Dynamic Width)
+      // The width is stored in center.y (we packed it there in calculateCenterline)
+      const trackWidth = center.y > 0 ? center.y : 3.0;
+      const halfWidth = trackWidth * 0.5;
+      const limit = halfWidth * 0.9; // Stay 90% within boundary
+
       const dx = newPos[i].x - center.x;
       const dz = newPos[i].z - center.z;
       const distSq = dx*dx + dz*dz;
       
-      if (distSq > MAX_DEVIATION * MAX_DEVIATION) {
+      if (distSq > limit * limit) {
           const dist = Math.sqrt(distSq);
-          const ratio = MAX_DEVIATION / dist;
+          const ratio = limit / dist;
           newPos[i].x = center.x + dx * ratio;
           newPos[i].z = center.z + dz * ratio;
       }
@@ -96,15 +135,12 @@ export const optimizeRRTStar = (centerPoints: THREE.Vector3[]): THREE.Vector3[] 
   // RRT* Parameters
   const ITERATIONS = 6000; // High sample count for better convergence
   const MAX_LOOKAHEAD = 50; // Look further ahead for shortcuts
-  const TRACK_LIMIT = 1.85; 
 
   // Helper: Check validity of a shortcut candidate
-  // We approximate continuous collision detection by sampling points along the shortcut
   const isShortcutValid = (idxStart: number, idxEndRaw: number, pStart: THREE.Vector3, pEnd: THREE.Vector3): boolean => {
       const distIdx = idxEndRaw - idxStart;
-      if (distIdx <= 1) return true; // Neighbors are always connected
+      if (distIdx <= 1) return true; 
 
-      // Check resolution: Every index step or at least 1m
       const samples = distIdx; 
 
       for(let k=1; k<samples; k++) {
@@ -117,9 +153,17 @@ export const optimizeRRTStar = (centerPoints: THREE.Vector3[]): THREE.Vector3[] 
           const idxHigh = (idxLow + 1) % len;
           const subT = centerT - Math.floor(centerT);
           
-          const centerPos = new THREE.Vector3().lerpVectors(centerPoints[idxLow], centerPoints[idxHigh], subT);
+          const pLow = centerPoints[idxLow];
+          const pHigh = centerPoints[idxHigh];
+          const centerPos = new THREE.Vector3().lerpVectors(pLow, pHigh, subT);
+          
+          // Interpolate Width
+          const wLow = pLow.y > 0 ? pLow.y : 3.0;
+          const wHigh = pHigh.y > 0 ? pHigh.y : 3.0;
+          const currentWidth = wLow + (wHigh - wLow) * subT;
+          const limit = (currentWidth * 0.5) * 0.9;
 
-          if (candPos.distanceToSquared(centerPos) > TRACK_LIMIT * TRACK_LIMIT) {
+          if (candPos.distanceToSquared(centerPos) > limit * limit) {
               return false; // Collision with track edge
           }
       }
@@ -127,7 +171,6 @@ export const optimizeRRTStar = (centerPoints: THREE.Vector3[]): THREE.Vector3[] 
   };
 
   // Phase 1: Stochastic Rewiring
-  // Randomly picks two points and tries to connect them with a straight line (shortcut)
   for (let k = 0; k < ITERATIONS; k++) {
       const idxA = Math.floor(Math.random() * len);
       const jump = Math.floor(Math.random() * MAX_LOOKAHEAD) + 2;
@@ -137,7 +180,6 @@ export const optimizeRRTStar = (centerPoints: THREE.Vector3[]): THREE.Vector3[] 
       const pA = path[idxA];
       const pB = path[idxB];
 
-      // If straight line A->B is valid, replace intermediate nodes
       if (isShortcutValid(idxA, idxB_Raw, pA, pB)) {
           for (let i = 1; i < jump; i++) {
               const targetIdx = (idxA + i) % len;
@@ -149,8 +191,6 @@ export const optimizeRRTStar = (centerPoints: THREE.Vector3[]): THREE.Vector3[] 
   }
 
   // Phase 2: Post-Process Smoothing
-  // RRT* by itself creates jagged "polygonal" paths. 
-  // We run a Laplacian smoother to round off the sharp corners created by shortcuts.
   const SMOOTH_ITERATIONS = 60;
   const SMOOTH_FACTOR = 0.3;
 
@@ -161,19 +201,20 @@ export const optimizeRRTStar = (centerPoints: THREE.Vector3[]): THREE.Vector3[] 
           const curr = path[i];
           const next = path[(i + 1) % len];
 
-          // Laplacian: Move towards average of neighbors
           nextPath[i].x += ((prev.x + next.x) / 2 - curr.x) * SMOOTH_FACTOR;
           nextPath[i].z += ((prev.z + next.z) / 2 - curr.z) * SMOOTH_FACTOR;
 
-          // Constraint Enforcing: Ensure we don't smooth "off" the track
           const center = centerPoints[i];
+          const width = center.y > 0 ? center.y : 3.0;
+          const limit = (width * 0.5) * 0.9;
+          
           const dx = nextPath[i].x - center.x;
           const dz = nextPath[i].z - center.z;
           const distSq = dx*dx + dz*dz;
 
-          if (distSq > TRACK_LIMIT * TRACK_LIMIT) {
+          if (distSq > limit * limit) {
               const dist = Math.sqrt(distSq);
-              const ratio = TRACK_LIMIT / dist;
+              const ratio = limit / dist;
               nextPath[i].x = center.x + dx * ratio;
               nextPath[i].z = center.z + dz * ratio;
           }
@@ -185,16 +226,13 @@ export const optimizeRRTStar = (centerPoints: THREE.Vector3[]): THREE.Vector3[] 
 };
 
 // --- Optimization 3: QP / Biharmonic Smoothing (Minimum Curvature) ---
-// Modified to accept an initialGuess (e.g. from RRT*)
 export const optimizeQP = (centerPoints: THREE.Vector3[], initialGuess?: THREE.Vector3[]): THREE.Vector3[] => {
   if (centerPoints.length < 3) return centerPoints;
 
-  // Initialize with initialGuess if provided, otherwise centerline
   let path = initialGuess 
     ? initialGuess.map(p => p.clone()) 
     : centerPoints.map(p => p.clone());
 
-  // Safety check: lengths must match for constraint logic
   if (path.length !== centerPoints.length) {
       path = centerPoints.map(p => p.clone());
   }
@@ -204,7 +242,6 @@ export const optimizeQP = (centerPoints: THREE.Vector3[], initialGuess?: THREE.V
   // Algorithm: Iterative Biharmonic Smoothing
   const ITERATIONS = 200; 
   const ALPHA = 0.1; // Learning rate
-  const TRACK_LIMIT = 1.8; // Constraint width
 
   for (let k = 0; k < ITERATIONS; k++) {
       const nextPath = path.map(p => p.clone());
@@ -219,19 +256,21 @@ export const optimizeQP = (centerPoints: THREE.Vector3[], initialGuess?: THREE.V
           const targetX = (-path[im2].x + 4*path[im1].x + 4*path[ip1].x - path[ip2].x) / 6;
           const targetZ = (-path[im2].z + 4*path[im1].z + 4*path[ip1].z - path[ip2].z) / 6;
 
-          // Move towards target
           nextPath[i].x += (targetX - path[i].x) * ALPHA;
           nextPath[i].z += (targetZ - path[i].z) * ALPHA;
 
-          // Enforce Constraints (Always relative to the original CENTER line)
+          // Enforce Constraints
           const center = centerPoints[i];
+          const width = center.y > 0 ? center.y : 3.0;
+          const limit = (width * 0.5) * 0.9;
+
           const dx = nextPath[i].x - center.x;
           const dz = nextPath[i].z - center.z;
           const distSq = dx*dx + dz*dz;
 
-          if (distSq > TRACK_LIMIT * TRACK_LIMIT) {
+          if (distSq > limit * limit) {
               const dist = Math.sqrt(distSq);
-              const ratio = TRACK_LIMIT / dist;
+              const ratio = limit / dist;
               nextPath[i].x = center.x + dx * ratio;
               nextPath[i].z = center.z + dz * ratio;
           }
@@ -251,7 +290,6 @@ export const optimizeHybrid = (centerPoints: THREE.Vector3[]): THREE.Vector3[] =
   
   const ITERATIONS = 100;
   const ALPHA = 0.15; // Learning rate
-  const TRACK_LIMIT = 1.8;
   const QP_WEIGHT = 0.6; // 60% Curvature Min (QP), 40% Shortest Path (Laplacian)
 
   for (let k = 0; k < ITERATIONS; k++) {
@@ -281,13 +319,16 @@ export const optimizeHybrid = (centerPoints: THREE.Vector3[]): THREE.Vector3[] =
 
           // Enforce Constraints
           const center = centerPoints[i];
+          const width = center.y > 0 ? center.y : 3.0;
+          const limit = (width * 0.5) * 0.9;
+
           const dx = nextPath[i].x - center.x;
           const dz = nextPath[i].z - center.z;
           const distSq = dx*dx + dz*dz;
 
-          if (distSq > TRACK_LIMIT * TRACK_LIMIT) {
+          if (distSq > limit * limit) {
               const dist = Math.sqrt(distSq);
-              const ratio = TRACK_LIMIT / dist;
+              const ratio = limit / dist;
               nextPath[i].x = center.x + dx * ratio;
               nextPath[i].z = center.z + dz * ratio;
           }
@@ -300,12 +341,9 @@ export const optimizeHybrid = (centerPoints: THREE.Vector3[]): THREE.Vector3[] =
 // --- Optimization 5: Pipeline RRT* + QP ---
 export const optimizeRRTQP = (centerPoints: THREE.Vector3[]): THREE.Vector3[] => {
     // 1. Exploration: Find topology and shortcuts using RRT*
-    // This finds the "Global Best Guess" through the track
     const rrtPath = optimizeRRTStar(centerPoints);
 
     // 2. Optimization: Polish the rough shortcuts with Minimum Curvature (QP)
-    // This transforms the jagged shortcuts into physically drivable arcs
-    // We pass rrtPath as the initial guess, but use centerPoints for constraints
     return optimizeQP(centerPoints, rrtPath);
 };
 
@@ -320,7 +358,8 @@ export const calculateCenterline = (cones: ConeData[]): THREE.Vector3[] => {
   if (!yellows.length || !blues.length) return [];
 
   // 1. Generate Candidate Pairs (Yellow -> Nearest Blue)
-  const candidates: { x: number, y: number, pairingDist: number }[] = [];
+  // Also record the width of the track at this pairing
+  const candidates: { x: number, y: number, width: number, pairingDist: number }[] = [];
 
   yellows.forEach(yPt => {
     let minDist = Infinity;
@@ -336,11 +375,12 @@ export const calculateCenterline = (cones: ConeData[]): THREE.Vector3[] => {
         }
     });
 
-    // Constraint: Only accept pairs within valid track width
+    // Constraint: Only accept pairs within valid track width limit (big limit for pairing)
     if (nearestBlue && minDist < PHYSICS.TRACK_WIDTH_LIMIT) {
         candidates.push({ 
             x: (yPt.x + nearestBlue.x) / 2, 
             y: (yPt.y + nearestBlue.y) / 2,
+            width: minDist, // Store the actual track width here
             pairingDist: minDist
         });
     }
@@ -349,15 +389,12 @@ export const calculateCenterline = (cones: ConeData[]): THREE.Vector3[] => {
   if (candidates.length === 0) return [];
 
   // 2. Filter Overlaps / Superpositions
-  // "Keep the closest" -> We prioritize points from tighter/better-defined sections (shorter pairing dist).
-  // This ensures that if a point from a wide straight overlaps a point from a tight corner, we keep the corner point.
   candidates.sort((a, b) => a.pairingDist - b.pairingDist);
 
-  const midpoints: {x: number, y: number}[] = [];
-  const MIN_SPACING = 2.5; // Meters. Prevents knots/overlaps (z-fighting)
+  const midpoints: {x: number, y: number, width: number}[] = [];
+  const MIN_SPACING = 2.5; 
 
   candidates.forEach(cand => {
-      // Check if this candidate is too close to any already accepted midpoint
       const isTooClose = midpoints.some(m => {
           const dx = m.x - cand.x;
           const dy = m.y - cand.y;
@@ -365,13 +402,13 @@ export const calculateCenterline = (cones: ConeData[]): THREE.Vector3[] => {
       });
 
       if (!isTooClose) {
-          midpoints.push({ x: cand.x, y: cand.y });
+          midpoints.push({ x: cand.x, y: cand.y, width: cand.width });
       }
   });
 
   if (midpoints.length === 0) return [];
 
-  // 3. Sort Points (Greedy Nearest Neighbor with Directional Bias)
+  // 3. Sort Points (Greedy Nearest Neighbor)
   const sortedPoints: THREE.Vector3[] = [];
   const visited = new Set<number>();
 
@@ -392,7 +429,9 @@ export const calculateCenterline = (cones: ConeData[]): THREE.Vector3[] => {
   if (startIdx === -1) return [];
 
   let currentIdx = startIdx;
-  sortedPoints.push(new THREE.Vector3(midpoints[currentIdx].x, 0, midpoints[currentIdx].y));
+  // Store WIDTH in the Y component of Vector3 (X, Width, Z) -> (x, width, y_coord)
+  // Note: ThreeJS uses Y as up, but we use X/Z plane. We repurpose Y for width storage temporarily.
+  sortedPoints.push(new THREE.Vector3(midpoints[currentIdx].x, midpoints[currentIdx].width, midpoints[currentIdx].y));
   visited.add(currentIdx);
 
   while (sortedPoints.length < midpoints.length) {
@@ -400,12 +439,12 @@ export const calculateCenterline = (cones: ConeData[]): THREE.Vector3[] => {
       let nearestIdx = -1;
       let minScore = Infinity;
 
-      // Determine current heading from previous points
       let heading: THREE.Vector3 | null = null;
       if (sortedPoints.length > 1) {
+          // Be careful, Y contains width in sortedPoints, Z contains 'y' coord
           const p1 = sortedPoints[sortedPoints.length - 2];
           const p2 = sortedPoints[sortedPoints.length - 1];
-          heading = new THREE.Vector3().subVectors(p2, p1).normalize();
+          heading = new THREE.Vector3(p2.x - p1.x, 0, p2.z - p1.z).normalize();
       }
 
       for (let i = 0; i < midpoints.length; i++) {
@@ -415,11 +454,10 @@ export const calculateCenterline = (cones: ConeData[]): THREE.Vector3[] => {
               const dSq = dx*dx + dy*dy;
               const d = Math.sqrt(dSq);
               
-              // Heuristic Score = Distance * Penalty
               let penalty = 1.0;
               if (heading) {
                   const toCandidate = new THREE.Vector3(dx, 0, dy).normalize();
-                  const alignment = heading.dot(toCandidate); // 1.0 = forward, -1.0 = backward
+                  const alignment = heading.dot(toCandidate);
                   penalty = 3.0 - 2.0 * alignment; 
               }
 
@@ -432,14 +470,14 @@ export const calculateCenterline = (cones: ConeData[]): THREE.Vector3[] => {
           }
       }
 
-      // Jump detection using constant from Physics
       const rawDist = nearestIdx !== -1 
           ? Math.sqrt(Math.pow(midpoints[nearestIdx].x - currentPos.x, 2) + Math.pow(midpoints[nearestIdx].y - currentPos.y, 2))
           : Infinity;
 
       if (nearestIdx === -1 || rawDist > PHYSICS.TRACK_WIDTH_LIMIT) break;
 
-      sortedPoints.push(new THREE.Vector3(midpoints[nearestIdx].x, 0, midpoints[nearestIdx].y));
+      // Store Width in Y component
+      sortedPoints.push(new THREE.Vector3(midpoints[nearestIdx].x, midpoints[nearestIdx].width, midpoints[nearestIdx].y));
       visited.add(nearestIdx);
       currentIdx = nearestIdx;
   }
@@ -450,6 +488,11 @@ export const calculateCenterline = (cones: ConeData[]): THREE.Vector3[] => {
 // --- 2. Path Generation & Physics Engine ---
 export const generateDetailedPath = (controlPoints: THREE.Vector3[]): PathPoint[] => {
   if (controlPoints.length < 3) return [];
+
+  // controlPoints stores Width in Y, and Z coord in Z.
+  // We need to unpack this for CatmullRom, but CatmullRom interpolates all components (x,y,z).
+  // So if we pass the vector as is, the Y component (width) will be smoothly interpolated too!
+  // This is perfect. We just need to remember that p.y is width, p.z is the 2D Y-coordinate.
 
   const curve = new THREE.CatmullRomCurve3(controlPoints);
   curve.closed = true; 
@@ -465,8 +508,15 @@ export const generateDetailedPath = (controlPoints: THREE.Vector3[]): PathPoint[
 
   // --- Pass 0: Geometry & Apex Limits ---
   for (let i = 0; i < points.length; i++) {
-    const p = points[i];
-    if (i > 0) cumulativeDist += p.distanceTo(points[i - 1]);
+    const p = points[i]; // p.x = x, p.y = width, p.z = y_coord
+    
+    // Need REAL 2D distance (x, z) not including width change
+    if (i > 0) {
+        const prev = points[i-1];
+        const dx = p.x - prev.x;
+        const dy = p.z - prev.z;
+        cumulativeDist += Math.sqrt(dx*dx + dy*dy);
+    }
 
     const prevIdx = (i - 1 + points.length) % points.length;
     const nextIdx = (i + 1) % points.length;
@@ -474,11 +524,12 @@ export const generateDetailedPath = (controlPoints: THREE.Vector3[]): PathPoint[
     const pPrev = points[prevIdx];
     const pNext = points[nextIdx];
     
-    const v1 = new THREE.Vector3().subVectors(p, pPrev).normalize();
-    const v2 = new THREE.Vector3().subVectors(pNext, p).normalize();
+    // Tangent vectors (2D plane X, Z)
+    const v1 = new THREE.Vector3(p.x - pPrev.x, 0, p.z - pPrev.z).normalize();
+    const v2 = new THREE.Vector3(pNext.x - p.x, 0, pNext.z - p.z).normalize();
     
     const angle = v1.angleTo(v2);
-    const segLen = pPrev.distanceTo(p) + p.distanceTo(pNext);
+    const segLen = Math.hypot(p.x - pPrev.x, p.z - pPrev.z) + Math.hypot(pNext.x - p.x, pNext.z - p.z);
     
     // Local curvature
     const k = angle / (segLen * 0.5 + 0.001);
@@ -488,16 +539,17 @@ export const generateDetailedPath = (controlPoints: THREE.Vector3[]): PathPoint[
     const limitVel = Math.min(maxLatVel, PHYSICS.MAX_VELOCITY);
 
     const yaw = Math.atan2(v2.z, v2.x);
-    const pitch = Math.asin(v2.y);
+    const pitch = 0; // Simplified pitch
 
     pathData.push({
       x: p.x,
-      y: p.z,
-      z: p.y,
+      y: p.z, // Map back to our standard: y is the 2D depth
+      z: 0,   // Elevation 0 for now
+      trackWidth: p.y, // Extracted interpolated width
       dist: cumulativeDist,
       curvature: k,
       maxVelocity: limitVel,
-      velocity: limitVel, // Initialize with MAX possible
+      velocity: limitVel,
       acceleration: 0,
       yaw: -yaw,
       pitch: pitch,
@@ -505,77 +557,53 @@ export const generateDetailedPath = (controlPoints: THREE.Vector3[]): PathPoint[
     });
   }
 
-  // --- Flying Lap Solver (Circular Integration) ---
-  // Iterate to connect end -> start ensures the car carries speed across the start/finish line.
-  const ITERATIONS = 4; // Increased iterations for better convergence
-
+  // --- Flying Lap Solver (Same as before) ---
+  const ITERATIONS = 4; 
   for(let iter = 0; iter < ITERATIONS; iter++) {
-    
-    // 1. Link End -> Start (Anticipate Turn 1 braking from the previous lap)
-    // We seed the End velocity from the Start velocity of the previous pass (or current state)
     if (iter > 0) {
       const startVel = pathData[0].velocity;
       const endVel = pathData[pathData.length - 1].velocity;
-      // The true boundary condition is that start velocity MUST equal end velocity
       pathData[pathData.length - 1].velocity = Math.min(endVel, startVel);
     }
 
-    // Pass 1: Backward (Braking Solver)
     for (let i = pathData.length - 2; i >= 0; i--) {
       const dist = pathData[i+1].dist - pathData[i].dist;
       const vNext = pathData[i+1].velocity;
       const k = pathData[i].curvature;
-
-      // Traction Circle (approx)
       const latAccel = vNext * vNext * k;
       const gripSq = maxGripAcc * maxGripAcc;
       const latSq = latAccel * latAccel;
-      
-      // Available longitudinal grip for braking
       const availableDecel = Math.sqrt(Math.max(0, gripSq - latSq));
       const brakingLimit = Math.min(availableDecel, PHYSICS.MAX_BRAKING);
-
-      // v_current^2 = v_next^2 + 2 * a * d
       const vLimit = Math.sqrt(vNext * vNext + 2 * brakingLimit * dist);
       pathData[i].velocity = Math.min(pathData[i].velocity, vLimit);
     }
 
-    // 2. Link Start -> End (Carry Momentum)
-    // The speed at index 0 is determined by the end of the previous lap
     const endVel = pathData[pathData.length - 1].velocity;
     pathData[0].velocity = endVel;
 
-    // Pass 2: Forward (Acceleration Solver)
     for (let i = 1; i < pathData.length; i++) {
       const dist = pathData[i].dist - pathData[i-1].dist;
       const vPrev = pathData[i-1].velocity;
       const k = pathData[i].curvature;
-
       const latAccel = vPrev * vPrev * k;
       const gripSq = maxGripAcc * maxGripAcc;
       const latSq = latAccel * latAccel;
-      
       const availableAccel = Math.sqrt(Math.max(0, gripSq - latSq));
       const engineLimit = Math.min(availableAccel, PHYSICS.MAX_ACCEL);
-
-      // v_current^2 = v_prev^2 + 2 * a * d
       const vLimit = Math.sqrt(vPrev * vPrev + 2 * engineLimit * dist);
       pathData[i].velocity = Math.min(pathData[i].velocity, vLimit);
     }
-    
-    // Sync final point again to ensure closed loop consistency
     pathData[pathData.length-1].velocity = pathData[0].velocity;
   }
 
-  // --- Pass 3: Calculate Final Acceleration & Heatmap ---
+  // --- Pass 3: Acceleration & Heatmap ---
   for (let i = 0; i < pathData.length - 1; i++) {
     const p = pathData[i];
     const pNext = pathData[i+1];
     const dist = pNext.dist - p.dist;
     
     let accel = (pNext.velocity * pNext.velocity - p.velocity * p.velocity) / (2 * dist);
-    
-    // Filter noise
     if (Math.abs(accel) < 0.1) accel = 0;
     p.acceleration = accel;
 
@@ -592,10 +620,9 @@ export const generateDetailedPath = (controlPoints: THREE.Vector3[]): PathPoint[
     p.color = '#' + color.getHexString();
   }
   
-  // Handle last point
-  const last = pathData[pathData.length - 1];
-  last.acceleration = pathData[0].acceleration;
-  last.color = pathData[0].color;
+  const lastControlPoint = pathData[pathData.length - 1];
+  lastControlPoint.acceleration = pathData[0].acceleration;
+  lastControlPoint.color = pathData[0].color;
 
   return pathData;
 };

@@ -65,7 +65,7 @@ const AnimatedSpectators: React.FC<{ path: PathPoint[] }> = ({ path }) => {
 
               if (dSq < CROWD_SAFE_DIST * CROWD_SAFE_DIST) {
                   safe = false;
-                  break; // Too close, unsafe
+                  break; // Too close to track
               }
               if (dSq < MAX_DIST_FROM_TRACK * MAX_DIST_FROM_TRACK) {
                   nearTrack = true; // Close enough to watch
@@ -195,73 +195,6 @@ const Trees: React.FC<{ path: PathPoint[] }> = ({ path }) => {
   );
 };
 
-// --- Tire Barriers ---
-const TireBarriers: React.FC<{ path: PathPoint[] }> = ({ path }) => {
-  const tireData = useMemo(() => {
-    if (path.length < 2) return [];
-    
-    const instances = [];
-    const BARRIER_OFFSET_DIST = 4.0; 
-    const TIRE_HEIGHT = 0.25;
-    const STACK_COUNT = 3;
-    
-    const totalDist = path[path.length - 1].dist;
-    const step = 0.7; 
-    
-    let d = 0;
-    let idx = 0;
-    
-    while (d < totalDist) {
-        while (idx < path.length - 1 && path[idx + 1].dist < d) {
-            idx++;
-        }
-        const p1 = path[idx];
-        const p2 = path[idx + 1] || p1;
-        const segLen = p2.dist - p1.dist;
-        const alpha = segLen > 0.001 ? (d - p1.dist) / segLen : 0;
-        
-        const x = THREE.MathUtils.lerp(p1.x, p2.x, alpha);
-        const z = THREE.MathUtils.lerp(p1.y, p2.y, alpha);
-        
-        const dx = p2.x - p1.x;
-        const dz = p2.y - p1.y;
-        const len = Math.sqrt(dx*dx + dz*dz) || 1;
-        const nx = -dz / len;
-        const nz = dx / len;
-        
-        const isWhite = Math.floor(d / 4.0) % 2 === 0;
-        const color = isWhite ? '#f8fafc' : '#ef4444';
-        
-        [BARRIER_OFFSET_DIST, -BARRIER_OFFSET_DIST].forEach(off => {
-            const bx = x + nx * off;
-            const bz = z + nz * off;
-            
-            for(let s=0; s<STACK_COUNT; s++) {
-                const jx = (Math.random() - 0.5) * 0.05;
-                const jz = (Math.random() - 0.5) * 0.05;
-                instances.push({
-                    pos: [bx + jx, TIRE_HEIGHT/2 + s*TIRE_HEIGHT, bz + jz],
-                    color
-                });
-            }
-        });
-        
-        d += step;
-    }
-    return instances;
-  }, [path]);
-
-  return (
-    <Instances range={tireData.length}>
-       <cylinderGeometry args={[0.3, 0.3, 0.25, 12]} />
-       <meshStandardMaterial roughness={0.8} />
-       {tireData.map((d, i) => (
-         <Instance key={i} position={d.pos as any} color={d.color} />
-       ))}
-    </Instances>
-  );
-}
-
 const WorldEnvironment: React.FC<EnvironmentProps> = ({ path, currentTrack }) => {
   return (
     <group>
@@ -272,7 +205,6 @@ const WorldEnvironment: React.FC<EnvironmentProps> = ({ path, currentTrack }) =>
       </mesh>
 
       <Trees path={path} />
-      {path.length > 10 && currentTrack !== 'shanghai' && currentTrack !== 'circuit_3' && <TireBarriers path={path} />}
       
       {/* Spectators */}
       <AnimatedSpectators path={path} />

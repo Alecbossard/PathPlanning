@@ -17,6 +17,7 @@ interface UIOverlayProps {
   editorState: EditorState;
   isPlaying: boolean;
   currentTrack: string;
+  trackOptions: { value: string; label: string; isCommunity?: boolean }[];
   cameraMode: CameraMode;
   isNight: boolean;
   optimizerMode: OptimizerMode;
@@ -191,6 +192,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
   editorState,
   isPlaying,
   currentTrack,
+  trackOptions,
   cameraMode,
   isNight,
   optimizerMode,
@@ -220,6 +222,10 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
       onImport(e.target.files[0]);
     }
   };
+
+  // Group options by type
+  const defaultOptions = trackOptions.filter(o => !o.isCommunity);
+  const communityOptions = trackOptions.filter(o => o.isCommunity);
 
   return (
     <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-2 md:p-4 overflow-hidden">
@@ -270,10 +276,19 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
               onChange={(e) => onChangeTrack(e.target.value)}
               className="w-full bg-slate-800 border border-slate-600 text-white rounded px-3 py-2 appearance-none cursor-pointer hover:bg-slate-750 transition outline-none focus:border-blue-500 font-medium text-xs md:text-sm"
             >
-              <option value="small_track">🏁 Small Track (FSG)</option>
-              <option value="peanut">🥜 Peanut Track (Skidpad)</option>
-              <option value="circuit_3">🚧 Circuit 3</option>
-              <option value="shanghai">🇨🇳 Shanghai Circuit</option>
+              <optgroup label="Standard Tracks">
+                {defaultOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </optgroup>
+              
+              {communityOptions.length > 0 && (
+                <optgroup label="Community Tracks (GitHub)">
+                    {communityOptions.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                </optgroup>
+              )}
             </select>
             <Map size={16} className="absolute right-3 top-2 md:top-3 text-slate-400 pointer-events-none group-hover:text-blue-400 transition-colors" />
           </div>
