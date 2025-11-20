@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Play, Pause, RefreshCw, Download, Upload,
-  PlusCircle, MousePointer2, Eye,
+  MousePointer2, Eye,
   Activity, Map, Home, Video, Moon, Sun, CarFront,
   Orbit, Zap, Aperture, Network, Cpu, GitMerge, Sparkles,
-  Ghost
+  Ghost, Waves, Flag
 } from 'lucide-react';
 import { EditorState, TrackMetadata, PathPoint, CameraMode, OptimizerMode } from '../types';
 import { PHYSICS } from '../constants';
@@ -20,7 +20,9 @@ interface UIOverlayProps {
   cameraMode: CameraMode;
   isNight: boolean;
   optimizerMode: OptimizerMode;
-  showGhost: boolean; // New Prop
+  showGhost: boolean;
+  enableSuspension: boolean;
+  raceMode: boolean;
   onTogglePlay: () => void;
   onReset: () => void;
   onExport: () => void;
@@ -31,11 +33,13 @@ interface UIOverlayProps {
   onSetCamera: (mode: CameraMode) => void;
   onToggleNight: () => void;
   onSetOptimizerMode: (mode: OptimizerMode) => void;
-  onToggleGhost: () => void; // New Handler
+  onToggleGhost: () => void;
+  onToggleSuspension: () => void;
+  onToggleRaceMode: () => void;
 }
 
 const GlassPanel = ({ children, className = '' }: { children?: React.ReactNode; className?: string }) => (
-  <div className={`bg-slate-900/80 backdrop-blur-md border border-slate-700 rounded-xl p-4 text-slate-200 shadow-xl ${className}`}>
+  <div className={`bg-slate-900/80 backdrop-blur-md border border-slate-700 rounded-xl p-3 md:p-4 text-slate-200 shadow-xl ${className}`}>
     {children}
   </div>
 );
@@ -85,24 +89,13 @@ const GGDiagram: React.FC<{ path: PathPoint[], isPlaying: boolean }> = ({ path, 
       const acceleration = THREE.MathUtils.lerp(p1.acceleration, p2.acceleration, alpha);
 
       // 3. Calculate Signed Direction
-      // Look ahead to determine if turning Left or Right
-      // Cross product of current segment vector and next segment vector
       const pNext = path[idx + 2] || path[0]; 
-      // Vector A: p1 -> p2
       const ax = p2.x - p1.x;
-      const ay = p2.y - p1.y; // Remember y is Z in 2D plane here
-      // Vector B: p2 -> pNext
+      const ay = p2.y - p1.y; 
       const bx = pNext.x - p2.x;
       const by = pNext.y - p2.y;
       
-      // 2D Cross Product Magnitude = ax*by - ay*bx
-      // Sign indicates Left (+/CounterClock) or Right (-/Clock)
       const cross = ax * by - ay * bx;
-      // In typical automotive G-G, lateral G is plotted as acceleration.
-      // Turning Left (Centripetal force Left) -> Occupants feel Centrifugal force Right.
-      // However, usually we plot the Car's Acceleration vector. 
-      // Turning Left = Acceleration Vector Points Left.
-      // Let's interpret Cross > 0 as Left Turn -> Positive X on graph.
       const turnSign = Math.sign(cross);
 
       // 4. Calculate G-Forces
@@ -202,6 +195,8 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
   isNight,
   optimizerMode,
   showGhost,
+  enableSuspension,
+  raceMode,
   onTogglePlay,
   onReset,
   onExport,
@@ -212,7 +207,9 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
   onSetCamera,
   onToggleNight,
   onSetOptimizerMode,
-  onToggleGhost
+  onToggleGhost,
+  onToggleSuspension,
+  onToggleRaceMode
 }) => {
   const chartData = pathData.filter((_, i) => i % 3 === 0); 
   const [activeTab, setActiveTab] = useState<'VELOCITY' | 'CURVATURE'>('VELOCITY');
@@ -225,13 +222,24 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
   };
 
   return (
-    <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-4 overflow-hidden">
+    <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-2 md:p-4 overflow-hidden">
+      <style>
+        {`
+          .no-scrollbar::-webkit-scrollbar {
+            display: none;
+          }
+          .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+          }
+        `}
+      </style>
       
       {/* Top Bar */}
-      <div className="flex justify-between items-start pointer-events-auto gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-start pointer-events-auto gap-2 md:gap-4">
         
         {/* Stats Panel */}
-        <GlassPanel className="flex flex-col gap-3 min-w-[280px]">
+        <GlassPanel className="flex flex-col gap-2 md:gap-3 w-full md:w-auto md:min-w-[280px]">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
                <button 
@@ -241,9 +249,9 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                >
                  <Home size={18} />
                </button>
-               <h1 className="text-xl font-bold text-white flex items-center gap-2 tracking-tight">
-                 <Activity className="text-blue-500" size={24} />
-                 Studio <span className="text-xs font-normal text-slate-500">v3.4</span>
+               <h1 className="text-lg md:text-xl font-bold text-white flex items-center gap-2 tracking-tight">
+                 <Activity className="text-blue-500" size={20} />
+                 <span className="hidden xs:inline">Studio</span> <span className="text-xs font-normal text-slate-500">v3.4</span>
                </h1>
             </div>
             <div className={`text-[10px] px-2 py-0.5 rounded border font-mono uppercase ${
@@ -260,40 +268,40 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
             <select 
               value={currentTrack}
               onChange={(e) => onChangeTrack(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-600 text-white rounded px-3 py-2 appearance-none cursor-pointer hover:bg-slate-750 transition outline-none focus:border-blue-500 font-medium text-sm"
+              className="w-full bg-slate-800 border border-slate-600 text-white rounded px-3 py-2 appearance-none cursor-pointer hover:bg-slate-750 transition outline-none focus:border-blue-500 font-medium text-xs md:text-sm"
             >
               <option value="small_track">🏁 Small Track (FSG)</option>
               <option value="peanut">🥜 Peanut Track (Skidpad)</option>
               <option value="circuit_3">🚧 Circuit 3</option>
               <option value="shanghai">🇨🇳 Shanghai Circuit</option>
             </select>
-            <Map size={16} className="absolute right-3 top-3 text-slate-400 pointer-events-none group-hover:text-blue-400 transition-colors" />
+            <Map size={16} className="absolute right-3 top-2 md:top-3 text-slate-400 pointer-events-none group-hover:text-blue-400 transition-colors" />
           </div>
 
-          <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm mt-1">
+          <div className="grid grid-cols-4 md:grid-cols-2 gap-x-2 md:gap-x-4 gap-y-2 md:gap-y-3 text-sm mt-1">
             <div className="flex flex-col">
-               <span className="text-slate-500 text-[10px] uppercase font-bold">Length</span>
-               <span className="font-mono text-slate-200">{metadata.totalLength.toFixed(1)} <span className="text-slate-500 text-xs">m</span></span>
+               <span className="text-slate-500 text-[8px] md:text-[10px] uppercase font-bold">Length</span>
+               <span className="font-mono text-slate-200 text-xs md:text-sm">{metadata.totalLength.toFixed(0)}<span className="hidden md:inline text-slate-500 text-xs ml-1">m</span></span>
             </div>
             <div className="flex flex-col">
-               <span className="text-slate-500 text-[10px] uppercase font-bold">Lap Time</span>
-               <span className="font-mono text-blue-400">{metadata.estLapTime.toFixed(2)} <span className="text-slate-500 text-xs">s</span></span>
+               <span className="text-slate-500 text-[8px] md:text-[10px] uppercase font-bold">Lap Time</span>
+               <span className="font-mono text-blue-400 text-xs md:text-sm">{metadata.estLapTime.toFixed(2)}<span className="hidden md:inline text-slate-500 text-xs ml-1">s</span></span>
             </div>
             <div className="flex flex-col">
-               <span className="text-slate-500 text-[10px] uppercase font-bold">Max Lat</span>
-               <span className="font-mono text-slate-200">{metadata.maxLatG.toFixed(2)} <span className="text-slate-500 text-xs">G</span></span>
+               <span className="text-slate-500 text-[8px] md:text-[10px] uppercase font-bold">Max Lat</span>
+               <span className="font-mono text-slate-200 text-xs md:text-sm">{metadata.maxLatG.toFixed(1)}<span className="hidden md:inline text-slate-500 text-xs ml-1">G</span></span>
             </div>
              <div className="flex flex-col">
-               <span className="text-slate-500 text-[10px] uppercase font-bold">Max Brake</span>
-               <span className="font-mono text-red-400">{Math.abs(metadata.minLongG).toFixed(2)} <span className="text-slate-500 text-xs">G</span></span>
+               <span className="text-slate-500 text-[8px] md:text-[10px] uppercase font-bold">Brake</span>
+               <span className="font-mono text-red-400 text-xs md:text-sm">{Math.abs(metadata.minLongG).toFixed(1)}<span className="hidden md:inline text-slate-500 text-xs ml-1">G</span></span>
             </div>
           </div>
         </GlassPanel>
 
-        {/* Editor Tools */}
-        <GlassPanel className="flex gap-2 items-center">
+        {/* Editor Tools - Scrollable on Mobile */}
+        <GlassPanel className="flex gap-2 items-center overflow-x-auto no-scrollbar max-w-[90vw] md:max-w-none">
           {/* Camera Controls */}
-          <div className="flex items-center bg-slate-800/50 rounded-lg p-1 mr-2 border border-slate-700">
+          <div className="flex items-center bg-slate-800/50 rounded-lg p-1 mr-2 border border-slate-700 flex-shrink-0">
              <button
                onClick={() => onSetCamera(CameraMode.ORBIT)}
                className={`p-2 rounded-md transition ${cameraMode === CameraMode.ORBIT ? 'bg-slate-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'}`}
@@ -326,7 +334,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
 
           <button
             onClick={onToggleNight}
-            className={`p-2.5 rounded-lg transition border ${isNight ? 'bg-indigo-950 text-indigo-300 border-indigo-800' : 'bg-amber-900/20 text-amber-400 border-amber-500/20 hover:bg-amber-900/30'}`}
+            className={`p-2.5 rounded-lg transition border flex-shrink-0 ${isNight ? 'bg-indigo-950 text-indigo-300 border-indigo-800' : 'bg-amber-900/20 text-amber-400 border-amber-500/20 hover:bg-amber-900/30'}`}
             title="Day/Night Cycle"
           >
              {isNight ? <Moon size={18} /> : <Sun size={18} />}
@@ -335,16 +343,34 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
           {/* Ghost Mode Toggle */}
           <button
             onClick={onToggleGhost}
-            className={`p-2.5 rounded-lg transition border ml-1 ${showGhost ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50' : 'hover:bg-slate-700 text-slate-400 border-transparent'}`}
+            className={`p-2.5 rounded-lg transition border ml-1 flex-shrink-0 ${showGhost ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50' : 'hover:bg-slate-700 text-slate-400 border-transparent'}`}
             title="Ghost Car (Compare Fastest Lap)"
           >
              <Ghost size={18} />
           </button>
 
-          <div className="w-px h-8 bg-slate-700 mx-1" />
+          {/* Suspension Mode Toggle */}
+          <button
+            onClick={onToggleSuspension}
+            className={`p-2.5 rounded-lg transition border ml-1 flex-shrink-0 ${enableSuspension ? 'bg-pink-500/20 text-pink-300 border-pink-500/50' : 'hover:bg-slate-700 text-slate-400 border-transparent'}`}
+            title="Dynamic Suspension & Drift"
+          >
+             <Waves size={18} />
+          </button>
+
+          {/* AI Race Mode Toggle */}
+          <button
+            onClick={onToggleRaceMode}
+            className={`p-2.5 rounded-lg transition border ml-1 flex-shrink-0 ${raceMode ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/50' : 'hover:bg-slate-700 text-slate-400 border-transparent'}`}
+            title="AI Race Mode (Laplacian vs QP vs RRT)"
+          >
+              <Flag size={18} />
+          </button>
+
+          <div className="w-px h-8 bg-slate-700 mx-1 flex-shrink-0" />
           
           {/* Algorithm Selectors */}
-          <div className="flex items-center bg-slate-800/50 rounded-lg p-1 border border-slate-700">
+          <div className="flex items-center bg-slate-800/50 rounded-lg p-1 border border-slate-700 flex-shrink-0">
             <button
                 onClick={() => onSetOptimizerMode(OptimizerMode.NONE)}
                 className={`p-2 rounded-md transition flex items-center gap-1 ${optimizerMode === OptimizerMode.NONE ? 'bg-slate-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'}`}
@@ -389,37 +415,25 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
             </button>
           </div>
 
-          <div className="w-px h-8 bg-slate-700 mx-1" />
+          <div className="w-px h-8 bg-slate-700 mx-1 flex-shrink-0" />
 
           {/* Edit Tools */}
-          <button 
-            onClick={() => onSetMode('VIEW')}
-            className={`p-2.5 rounded-lg transition ${editorState.mode === 'VIEW' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-700 text-slate-400'}`}
-            title="View Mode"
-          >
-            <Eye size={18} />
-          </button>
-          <button 
-            onClick={() => onSetMode('EDIT')}
-            className={`p-2.5 rounded-lg transition ${editorState.mode === 'EDIT' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-700 text-slate-400'}`}
-            title="Edit Cones"
-          >
-            <MousePointer2 size={18} />
-          </button>
-          <button 
-            onClick={() => onSetMode('ADD_BLUE')}
-            className={`p-2.5 rounded-lg transition ${editorState.mode === 'ADD_BLUE' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/50' : 'hover:bg-slate-700 text-slate-400 hover:text-blue-400'}`}
-            title="Add Blue Cone"
-          >
-            <PlusCircle size={18} />
-          </button>
-          <button 
-            onClick={() => onSetMode('ADD_YELLOW')}
-            className={`p-2.5 rounded-lg transition ${editorState.mode === 'ADD_YELLOW' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50' : 'hover:bg-slate-700 text-slate-400 hover:text-yellow-400'}`}
-            title="Add Yellow Cone"
-          >
-            <PlusCircle size={18} />
-          </button>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button 
+              onClick={() => onSetMode('VIEW')}
+              className={`p-2.5 rounded-lg transition ${editorState.mode === 'VIEW' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-700 text-slate-400'}`}
+              title="View Mode"
+            >
+              <Eye size={18} />
+            </button>
+            <button 
+              onClick={() => onSetMode('EDIT')}
+              className={`p-2.5 rounded-lg transition ${editorState.mode === 'EDIT' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-700 text-slate-400'}`}
+              title="Edit Cones"
+            >
+              <MousePointer2 size={18} />
+            </button>
+          </div>
         </GlassPanel>
       </div>
 
@@ -427,34 +441,34 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 pointer-events-auto items-end">
         
         {/* Controls */}
-        <GlassPanel className="lg:col-span-3 flex flex-col gap-4">
+        <GlassPanel className="lg:col-span-3 flex flex-col gap-4 w-full">
           <div className="flex items-center justify-center gap-4">
             <button 
               onClick={onTogglePlay}
-              className={`flex items-center justify-center w-14 h-14 rounded-full transition transform active:scale-95 ${isPlaying ? 'bg-red-500 hover:bg-red-600 shadow-red-900/50' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-900/50'} text-white shadow-lg border-2 border-white/10`}
+              className={`flex items-center justify-center w-12 h-12 md:w-14 md:h-14 rounded-full transition transform active:scale-95 ${isPlaying ? 'bg-red-500 hover:bg-red-600 shadow-red-900/50' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-900/50'} text-white shadow-lg border-2 border-white/10`}
             >
-              {isPlaying ? <Pause fill="currentColor" size={24} /> : <Play fill="currentColor" className="ml-1" size={24} />}
+              {isPlaying ? <Pause fill="currentColor" size={20} /> : <Play fill="currentColor" className="ml-1" size={20} />}
             </button>
             
             <div className="flex flex-col gap-2 w-full">
                 <button 
                 onClick={onReset}
-                className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-slate-300 border border-slate-600 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide justify-center"
+                className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-slate-300 border border-slate-600 flex items-center gap-2 text-[10px] md:text-xs font-semibold uppercase tracking-wide justify-center"
                 >
-                  <RefreshCw size={14} /> Reset Track
+                  <RefreshCw size={12} /> Reset Track
                 </button>
                 <div className="flex gap-2">
                     <button 
                       onClick={onExport}
-                      className="flex-1 p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-slate-300 border border-slate-600 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide justify-center"
+                      className="flex-1 p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-slate-300 border border-slate-600 flex items-center gap-2 text-[10px] md:text-xs font-semibold uppercase tracking-wide justify-center"
                     >
-                      <Download size={14} /> Save
+                      <Download size={12} /> Save
                     </button>
                     <button 
                       onClick={() => fileInputRef.current?.click()}
-                      className="flex-1 p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-slate-300 border border-slate-600 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide justify-center"
+                      className="flex-1 p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition text-slate-300 border border-slate-600 flex items-center gap-2 text-[10px] md:text-xs font-semibold uppercase tracking-wide justify-center"
                     >
-                      <Upload size={14} /> Load
+                      <Upload size={12} /> Load
                     </button>
                     <input 
                       type="file" 
@@ -468,7 +482,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
           </div>
           
           <div className="border-t border-slate-700 pt-3 mt-1">
-             <div className="flex justify-between text-[10px] uppercase text-slate-500 font-bold mb-2 tracking-wider">
+             <div className="flex justify-between text-[8px] md:text-[10px] uppercase text-slate-500 font-bold mb-2 tracking-wider">
                 <span>Braking Zone</span>
                 <span>Full Throttle</span>
              </div>

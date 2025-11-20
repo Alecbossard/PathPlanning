@@ -1,9 +1,10 @@
 import React from 'react';
-import { Flag, Zap, Trophy, Route, ArrowRight, Activity, Cpu, BookOpen } from 'lucide-react';
+import { Flag, Zap, Trophy, Route, ArrowRight, Activity, Cpu, BookOpen, PlayCircle } from 'lucide-react';
 
 interface LandingPageProps {
   onSelectTrack: (trackKey: string) => void;
   onShowAlgorithms: () => void;
+  onShowSimulations: () => void;
 }
 
 const TrackCard: React.FC<{
@@ -41,7 +42,7 @@ const TrackCard: React.FC<{
   </div>
 );
 
-const LandingPage: React.FC<LandingPageProps> = ({ onSelectTrack, onShowAlgorithms }) => {
+const LandingPage: React.FC<LandingPageProps> = ({ onSelectTrack, onShowAlgorithms, onShowSimulations }) => {
   return (
     <div className="h-full bg-slate-950 relative overflow-y-auto text-slate-200 selection:bg-blue-500/30">
       
@@ -77,23 +78,31 @@ const LandingPage: React.FC<LandingPageProps> = ({ onSelectTrack, onShowAlgorith
                 Optimize trajectories using RRT* and Quadratic Programming with real-time telemetry analysis.
             </p>
 
-            <div className="flex flex-col md:flex-row items-center justify-center gap-6">
-                <div className="flex items-center gap-8 text-sm font-mono text-slate-500">
-                    <div className="flex items-center gap-2">
-                        <Cpu size={16} /> 5 Optimization Algorithms
-                    </div>
-                    <div className="w-1 h-1 bg-slate-700 rounded-full" />
-                    <div>WebGL 2.0 Physics</div>
-                </div>
-                
+            <div className="flex flex-col md:flex-row items-center justify-center gap-4">
                 <button 
-                    onClick={onShowAlgorithms}
-                    className="px-5 py-2 rounded-full bg-slate-800 border border-slate-700 text-slate-300 text-sm font-medium hover:bg-slate-700 hover:text-white transition-colors flex items-center gap-2 group"
+                    onClick={onSelectTrack.bind(null, 'shanghai')}
+                    className="px-8 py-3 rounded-full bg-white text-slate-900 font-bold text-sm hover:bg-blue-50 transition-colors shadow-lg shadow-blue-900/20 flex items-center gap-2"
                 >
-                    <BookOpen size={16} />
-                    Learn Algorithms
-                    <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                    Launch Simulator
+                    <ArrowRight size={16} />
                 </button>
+
+                <div className="flex gap-2">
+                    <button 
+                        onClick={onShowAlgorithms}
+                        className="px-5 py-3 rounded-full bg-slate-800 border border-slate-700 text-slate-300 text-sm font-medium hover:bg-slate-700 hover:text-white transition-colors flex items-center gap-2"
+                    >
+                        <BookOpen size={16} />
+                        Documentation
+                    </button>
+                    <button 
+                        onClick={onShowSimulations}
+                        className="px-5 py-3 rounded-full bg-slate-800 border border-slate-700 text-emerald-400 border-emerald-900/50 text-sm font-medium hover:bg-slate-700 hover:text-emerald-300 transition-colors flex items-center gap-2"
+                    >
+                        <PlayCircle size={16} />
+                        Live Demos
+                    </button>
+                </div>
             </div>
         </div>
 

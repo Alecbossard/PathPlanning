@@ -3,6 +3,7 @@ import Scene3D from './components/Scene3D';
 import UIOverlay from './components/UIOverlay';
 import LandingPage from './components/LandingPage';
 import AlgorithmsPage from './components/AlgorithmsPage';
+import SimulationsPage from './components/SimulationsPage';
 import { ConeData, ConeType, EditorState, PathPoint, TrackMetadata, CameraMode, OptimizerMode } from './types';
 import { calculateCenterline, generateDetailedPath, generateId, getTrackMetadata, parseTrackData, optimizeRacingLine, optimizeRRTStar, optimizeQP, optimizeHybrid, optimizeRRTQP } from './services/mathUtils';
 import { TRACK_CSVS } from './constants';
@@ -10,7 +11,7 @@ import * as THREE from 'three';
 
 const App: React.FC = () => {
   // --- State ---
-  const [view, setView] = useState<'LANDING' | 'APP' | 'ALGORITHMS'>('LANDING');
+  const [view, setView] = useState<'LANDING' | 'APP' | 'ALGORITHMS' | 'SIMULATIONS'>('LANDING');
   const [currentTrackKey, setCurrentTrackKey] = useState<string>('small_track');
   const [cones, setCones] = useState<ConeData[]>([]);
   
@@ -21,9 +22,16 @@ const App: React.FC = () => {
   const [showGhost, setShowGhost] = useState(false);
   const [ghostPathData, setGhostPathData] = useState<PathPoint[]>([]);
 
+  // Race Mode State
+  const [raceMode, setRaceMode] = useState(false);
+  const [racePaths, setRacePaths] = useState<{ laplacian: PathPoint[], qp: PathPoint[], rrt: PathPoint[] }>({ laplacian: [], qp: [], rrt: [] });
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [cameraMode, setCameraMode] = useState<CameraMode>(CameraMode.ORBIT);
   const [isNight, setIsNight] = useState(false);
+  
+  // Physics State
+  const [enableSuspension, setEnableSuspension] = useState(false);
   
   // New: Tri-state optimizer
   const [optimizerMode, setOptimizerMode] = useState<OptimizerMode>(OptimizerMode.NONE);
@@ -62,6 +70,7 @@ const App: React.FC = () => {
       setRoadPathData([]);
       setRacingPathData([]);
       setGhostPathData([]);
+      setRacePaths({ laplacian: [], qp: [], rrt: [] });
       return;
     }
 
@@ -72,17 +81,36 @@ const App: React.FC = () => {
     const centerLinePath = generateDetailedPath(centerControlPoints);
     setRoadPathData(centerLinePath);
 
+    // If dragging, skip heavy math to maintain fps
+    if (editorState.isDragging) {
+        setRacingPathData(centerLinePath);
+        return;
+    }
+
+    // --- Race Mode Calculation (All 3 paths) ---
+    if (raceMode) {
+        const lapPoints = optimizeRacingLine(centerControlPoints);
+        const lapPath = generateDetailedPath(lapPoints);
+
+        const qpPoints = optimizeQP(centerControlPoints);
+        const qpPath = generateDetailedPath(qpPoints);
+
+        // RRT* can be jittery if re-run, but for visual demo it's okay. 
+        // Using standard RRTStar here for distinctiveness from QP.
+        const rrtPoints = optimizeRRTStar(centerControlPoints);
+        const rrtPath = generateDetailedPath(rrtPoints);
+        
+        setRacePaths({
+            laplacian: lapPath,
+            qp: qpPath,
+            rrt: rrtPath
+        });
+    }
+
     // 2. Calculate Ghost Path (Always RRT_QP as it is the "Fastest")
-    // We only calculate this if the user enables ghost to save performance, 
-    // OR if the user is already using RRT_QP (we can reuse).
     let rrtQpPath: PathPoint[] = [];
-    
-    // If the user selected RRT_QP, that IS the path. 
-    // If the user wants Ghost, we calculate RRT_QP separately.
-    // Note: optimizing RRT_QP is expensive. In a real app we would memoize or worker thread this.
-    // For this demo, we calculate it if needed.
-    
     const shouldCalcFastest = showGhost || optimizerMode === OptimizerMode.RRT_QP;
+    
     if (shouldCalcFastest) {
         const rrtQpControlPoints = optimizeRRTQP(centerControlPoints);
         rrtQpPath = generateDetailedPath(rrtQpControlPoints);
@@ -114,7 +142,7 @@ const App: React.FC = () => {
         // Standard
         setRacingPathData(centerLinePath);
     }
-  }, [cones, optimizerMode, showGhost]);
+  }, [cones, optimizerMode, showGhost, raceMode, editorState.isDragging]);
 
   const trackMetadata: TrackMetadata = useMemo(() => {
     return getTrackMetadata(racingPathData);
@@ -237,9 +265,12 @@ const App: React.FC = () => {
         <LandingPage 
             onSelectTrack={handleTrackSelect} 
             onShowAlgorithms={() => setView('ALGORITHMS')}
+            onShowSimulations={() => setView('SIMULATIONS')}
         />
       ) : view === 'ALGORITHMS' ? (
         <AlgorithmsPage onBack={handleHome} />
+      ) : view === 'SIMULATIONS' ? (
+        <SimulationsPage onBack={handleHome} />
       ) : (
         <>
           <Scene3D 
@@ -252,6 +283,9 @@ const App: React.FC = () => {
             cameraMode={cameraMode}
             isNight={isNight}
             currentTrack={currentTrackKey}
+            enableSuspension={enableSuspension}
+            raceMode={raceMode}
+            racePaths={racePaths}
             onConeMove={handleConeMove}
             onConeSelect={handleConeSelect}
             onAddCone={(x, z) => handleAddCone(x, z)}
@@ -267,6 +301,8 @@ const App: React.FC = () => {
             isNight={isNight}
             optimizerMode={optimizerMode}
             showGhost={showGhost}
+            enableSuspension={enableSuspension}
+            raceMode={raceMode}
             onTogglePlay={() => setIsPlaying(!isPlaying)}
             onReset={() => loadTrack(currentTrackKey)}
             onExport={handleExport}
@@ -278,6 +314,8 @@ const App: React.FC = () => {
             onToggleNight={() => setIsNight(!isNight)}
             onSetOptimizerMode={setOptimizerMode}
             onToggleGhost={() => setShowGhost(!showGhost)}
+            onToggleSuspension={() => setEnableSuspension(!enableSuspension)}
+            onToggleRaceMode={() => setRaceMode(!raceMode)}
           />
         </>
       )}
