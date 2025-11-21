@@ -10,7 +10,6 @@ This repo contains a standalone front-end built with React, TypeScript and Vite.
 
 - **Cone-based track editor**
   - Import track layouts from CSV (blue / yellow / orange cones).
-  - Edit cones directly in the 3D view (drag, move, re-shape the circuit).
   - Start / finish and car start cones supported.
 
 - **3D visualisation**
@@ -46,7 +45,6 @@ Create a `docs/` (or `assets/`) folder and export three GIFs from screen recordi
 
 ### 1. RRT* + QP racing line (main GIF)
 
-File: `docs/demo-rrtqp.gif`
 
 
 ![RRT* + QP racing line](docs/demo-rrtqp.gif)
@@ -54,7 +52,6 @@ File: `docs/demo-rrtqp.gif`
 
 ### 2. Track editor 
 
-File: `docs/demo-editor.gif`
 
 
 ![Track editor and centerline](docs/demo-editor.gif)
@@ -62,7 +59,6 @@ File: `docs/demo-editor.gif`
 
 ### 3. Site overview / UI tour
 
-File: `docs/demo-site.gif`
 
 
 ![Path Planning Studio – site overview](docs/demo-site.gif)
