@@ -93,9 +93,9 @@ Goal: this GIF showcases the **interactive editor** and the link between cone la
 
 File: `docs/demo-site.gif`
 
-```markdown
+
 ![Path Planning Studio – site overview](docs/demo-site.gif)
-```
+
 
 **Idea for the video**
 
