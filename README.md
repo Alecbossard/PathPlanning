@@ -50,14 +50,8 @@ Create a `docs/` (or `assets/`) folder and export three GIFs from screen recordi
 ![RRT* + QP racing line](docs/demo-rrtqp.gif)
 
 
-### 2. Track editor 
 
-
-
-![Track editor and centerline](docs/demo-editor.gif)
-
-
-### 3. Site overview / UI tour
+### 2. Site overview / UI tour
 
 
 
