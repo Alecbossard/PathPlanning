@@ -347,6 +347,82 @@ export const optimizeRRTQP = (centerPoints: THREE.Vector3[]): THREE.Vector3[] =>
     return optimizeQP(centerPoints, rrtPath);
 };
 
+// --- Optimization 6: Local Planner (Basic 5-Cone Horizon) ---
+export const optimizeLocalPlanner = (centerPoints: THREE.Vector3[]): THREE.Vector3[] => {
+    if (centerPoints.length < 6) return centerPoints;
+
+    const path: THREE.Vector3[] = [];
+    // Start at the first point
+    path.push(centerPoints[0].clone());
+
+    // Simulate the car driving through the track step-by-step
+    for (let i = 0; i < centerPoints.length - 1; i++) {
+        const lookahead = 5;
+        const windowPoints: THREE.Vector3[] = [];
+        
+        // Current committed position (start of this planning cycle)
+        windowPoints.push(path[i].clone());
+
+        // Look ahead 5 points from the Centerline (Ground Truth)
+        // In a real car, these would be detected by LiDAR/Camera relative to car position
+        for (let k = 1; k <= lookahead; k++) {
+            const idx = (i + k) % centerPoints.length;
+            windowPoints.push(centerPoints[idx].clone());
+        }
+
+        // Local Optimization: "Basic Algorithm"
+        // Simple Elastic Band / Laplacian smoothing on this small window.
+        // This simulates a driver smoothing out the immediate turn without seeing what comes after.
+        const iterations = 15;
+        for (let iter = 0; iter < iterations; iter++) {
+            // Don't move start point (0) as it's where the car IS.
+            // Move intermediate points to smooth the path.
+            for (let j = 1; j < windowPoints.length - 1; j++) {
+                 const prev = windowPoints[j-1];
+                 const curr = windowPoints[j];
+                 const next = windowPoints[j+1];
+
+                 // Move towards average of neighbors (Shortest Path / Smoothing)
+                 const tx = (prev.x + next.x) / 2;
+                 const tz = (prev.z + next.z) / 2;
+                 
+                 curr.x += (tx - curr.x) * 0.5;
+                 curr.z += (tz - curr.z) * 0.5;
+
+                 // Constraints: Stay within track width of the original centerline
+                 // We map window index j back to the global centerline index to check width
+                 const originalIdx = (i + j) % centerPoints.length;
+                 const center = centerPoints[originalIdx];
+                 const width = center.y > 0 ? center.y : 3.0;
+                 const limit = (width * 0.5) * 0.85; // 85% Safety margin
+
+                 const dx = curr.x - center.x;
+                 const dz = curr.z - center.z;
+                 const distSq = dx*dx + dz*dz;
+                 if(distSq > limit*limit){
+                     const dist = Math.sqrt(distSq);
+                     const ratio = limit/dist;
+                     curr.x = center.x + dx*ratio;
+                     curr.z = center.z + dz*ratio;
+                 }
+            }
+        }
+
+        // Receding Horizon: We only commit the next ONE step of this optimized plan.
+        // Then we move there, see new cones, and replan.
+        path.push(windowPoints[1].clone());
+    }
+    
+    // Ensure closed loop visually by connecting last to first if close
+    const first = path[0];
+    const last = path[path.length-1];
+    if (first.distanceTo(last) < 5) {
+        path[path.length-1].copy(first);
+    }
+
+    return path;
+};
+
 // --- 1. Pairing Logic (Improved with Spatial Filtering) ---
 export const calculateCenterline = (cones: ConeData[]): THREE.Vector3[] => {
   const blues = cones.filter(c => c.type === ConeType.BLUE);

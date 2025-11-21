@@ -5,7 +5,7 @@ import LandingPage from './components/LandingPage';
 import AlgorithmsPage from './components/AlgorithmsPage';
 import SimulationsPage from './components/SimulationsPage';
 import { ConeData, ConeType, EditorState, PathPoint, TrackMetadata, CameraMode, OptimizerMode } from './types';
-import { calculateCenterline, generateDetailedPath, generateId, getTrackMetadata, parseTrackData, optimizeRacingLine, optimizeRRTStar, optimizeQP, optimizeHybrid, optimizeRRTQP, fetchGithubTracks } from './services/mathUtils';
+import { calculateCenterline, generateDetailedPath, generateId, getTrackMetadata, parseTrackData, optimizeRacingLine, optimizeRRTStar, optimizeQP, optimizeHybrid, optimizeRRTQP, optimizeLocalPlanner, fetchGithubTracks } from './services/mathUtils';
 import { TRACK_CSVS, TRACK_NAMES } from './constants';
 import * as THREE from 'three';
 
@@ -39,6 +39,9 @@ const App: React.FC = () => {
   
   // New: Tri-state optimizer
   const [optimizerMode, setOptimizerMode] = useState<OptimizerMode>(OptimizerMode.NONE);
+  
+  // Local Planner Visualization State
+  const [activeConeIds, setActiveConeIds] = useState<Set<string>>(new Set());
 
   const [editorState, setEditorState] = useState<EditorState>({
     selectedConeId: null,
@@ -84,6 +87,7 @@ const App: React.FC = () => {
       setOptimizerMode(OptimizerMode.NONE);
       // Default ghost to false on new track load
       setShowGhost(false);
+      setActiveConeIds(new Set());
     }
   };
 
@@ -161,6 +165,10 @@ const App: React.FC = () => {
         setRacingPathData(hybridPath);
     } else if (optimizerMode === OptimizerMode.RRT_QP) {
         setRacingPathData(rrtQpPath); // Already calculated above
+    } else if (optimizerMode === OptimizerMode.LOCAL) {
+        const localPoints = optimizeLocalPlanner(centerControlPoints);
+        const localPath = generateDetailedPath(localPoints);
+        setRacingPathData(localPath);
     } else {
         // Standard
         setRacingPathData(centerLinePath);
@@ -194,6 +202,44 @@ const App: React.FC = () => {
 
   const handleSetMode = (mode: EditorState['mode']) => {
     setEditorState(prev => ({ ...prev, mode }));
+  };
+
+  // Called by Car component periodically (10hz) when LOCAL planner is active
+  const handleCarUpdate = (pos: THREE.Vector3, dir: THREE.Vector3) => {
+     if (optimizerMode !== OptimizerMode.LOCAL) {
+         if (activeConeIds.size > 0) setActiveConeIds(new Set());
+         return;
+     }
+     
+     // Calculate active cones (simulate perception field)
+     // Find top 5 cones that are:
+     // 1. In front of the car (dot product > 0)
+     // 2. Closest by distance
+     
+     const candidates = cones
+        .filter(c => c.type === ConeType.BLUE || c.type === ConeType.YELLOW)
+        .map(c => {
+            const dx = c.x - pos.x;
+            const dy = c.y - pos.z; // Note: Cone Y is 3D Z
+            const distSq = dx*dx + dy*dy;
+            
+            // Dot product for "In Front" check
+            // Vector to cone
+            const vecToCone = new THREE.Vector3(dx, 0, dy).normalize();
+            const dot = vecToCone.dot(dir);
+            
+            return { id: c.id, distSq, dot };
+        })
+        .filter(item => item.dot > 0.1 && item.distSq < 2500) // 50m range max, roughly > 85 deg FOV
+        .sort((a, b) => a.distSq - b.distSq)
+        .slice(0, 5); // "On va dire les 5 plots"
+
+     const newSet = new Set(candidates.map(c => c.id));
+     
+     // Only update state if changed to avoid re-renders
+     if (newSet.size !== activeConeIds.size || ![...newSet].every(id => activeConeIds.has(id))) {
+         setActiveConeIds(newSet);
+     }
   };
 
   const handleExport = () => {
@@ -317,8 +363,10 @@ const App: React.FC = () => {
             enableSuspension={enableSuspension}
             raceMode={raceMode}
             racePaths={racePaths}
+            activeConeIds={activeConeIds}
             onConeMove={handleConeMove}
             onConeSelect={handleConeSelect}
+            onCarUpdate={handleCarUpdate}
           />
           
           <UIOverlay 

@@ -20,7 +20,8 @@ export enum OptimizerMode {
   RRT = 'RRT',
   QP = 'QP',
   HYBRID = 'HYBRID',
-  RRT_QP = 'RRT_QP'
+  RRT_QP = 'RRT_QP',
+  LOCAL = 'LOCAL'
 }
 
 export interface ConeData {

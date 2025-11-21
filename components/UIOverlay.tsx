@@ -4,7 +4,7 @@ import {
   MousePointer2, Eye,
   Activity, Map, Home, Video, Moon, Sun, CarFront,
   Orbit, Zap, Aperture, Network, Cpu, GitMerge, Sparkles,
-  Ghost, Waves, Flag
+  Ghost, Waves, Flag, ScanEye
 } from 'lucide-react';
 import { EditorState, TrackMetadata, PathPoint, CameraMode, OptimizerMode } from '../types';
 import { PHYSICS } from '../constants';
@@ -265,7 +265,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                 ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' 
                 : 'bg-slate-700 text-slate-400 border-slate-600'
             }`}>
-              {optimizerMode}
+              {optimizerMode.replace('LOCAL', 'LOCAL PLANNER')}
             </div>
           </div>
 
@@ -427,6 +427,16 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
                 title="RRT* + QP Pipeline (Best)"
             >
                 <Sparkles size={16} />
+            </button>
+            
+            {/* Local Planner Button */}
+            <div className="w-px h-4 bg-slate-700 mx-1" />
+            <button
+                onClick={() => onSetOptimizerMode(OptimizerMode.LOCAL)}
+                className={`p-2 rounded-md transition ${optimizerMode === OptimizerMode.LOCAL ? 'bg-lime-600 text-white shadow-lg shadow-lime-900/20' : 'text-slate-400 hover:text-lime-400'}`}
+                title="Local Planner (5 Cone Horizon)"
+            >
+                <ScanEye size={16} />
             </button>
           </div>
 

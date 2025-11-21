@@ -14,6 +14,7 @@ interface CarProps {
   enableSuspension?: boolean;
   color?: string;
   label?: string;
+  onCarUpdate?: (position: THREE.Vector3, direction: THREE.Vector3) => void;
 }
 
 interface SkidMark {
@@ -51,7 +52,8 @@ const Car: React.FC<CarProps> = ({
   isGhost = false, 
   enableSuspension = false,
   color,
-  label
+  label,
+  onCarUpdate
 }) => {
   // Parent Group (Follows Path)
   const carRef = useRef<THREE.Group>(null);
@@ -101,10 +103,14 @@ const Car: React.FC<CarProps> = ({
   const currentRollRef = useRef(0);
   const currentPitchRef = useRef(0);
   const currentDriftRef = useRef(0);
+  
+  // Throttle state for onCarUpdate (don't spam parent every frame)
+  const lastUpdateRef = useRef(0);
 
   // Temp vectors
   const vec3 = useMemo(() => new THREE.Vector3(), []);
   const target = useMemo(() => new THREE.Vector3(), []);
+  const dirVec = useMemo(() => new THREE.Vector3(), []);
 
   useFrame((state, delta) => {
     if (!carRef.current || path.length < 2) return;
@@ -274,6 +280,14 @@ const Car: React.FC<CarProps> = ({
         const lzElev = THREE.MathUtils.lerp(lp1.z, lp2.z, lAlpha);
         
         carRef.current.lookAt(lx, lzElev + 0.25, ly);
+
+        // --- Report Position for Local Planner Visibility ---
+        if (onCarUpdate && state.clock.elapsedTime - lastUpdateRef.current > 0.1) {
+            // Calculate forward direction vector
+            dirVec.set(0, 0, 1).applyQuaternion(carRef.current.quaternion).normalize();
+            onCarUpdate(carRef.current.position, dirVec);
+            lastUpdateRef.current = state.clock.elapsedTime;
+        }
 
         // --- Wheel Animations ---
         // 1. Rolling (Rotation X)

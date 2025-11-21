@@ -2,14 +2,15 @@ import React, { useMemo, useRef } from 'react';
 import { ConeData, ConeType, PathPoint, EditorState } from '../types';
 import { VISUALS } from '../constants';
 import * as THREE from 'three';
-import { Text } from '@react-three/drei';
-import { ThreeEvent, useThree } from '@react-three/fiber';
+import { Text, Ring } from '@react-three/drei';
+import { ThreeEvent, useThree, useFrame } from '@react-three/fiber';
 
 interface TrackObjectsProps {
   cones: ConeData[];
   roadPath: PathPoint[];   // Asphalt Geometry
   racingPath: PathPoint[]; // Colored Line
   editorState: EditorState;
+  activeConeIds?: Set<string>;
   onConeMove: (id: string, x: number, z: number) => void;
   onConeSelect: (id: string | null) => void;
 }
@@ -17,15 +18,38 @@ interface TrackObjectsProps {
 interface DraggableConeProps {
   cone: ConeData;
   isSelected: boolean;
+  isActive: boolean;
   mode: string;
   onMove: (id: string, x: number, z: number) => void;
   onSelect: (id: string) => void;
 }
 
+// Visual component for the active scanner effect
+const ActiveScannerRing: React.FC = () => {
+    const ringRef = useRef<THREE.Mesh>(null);
+    useFrame((state) => {
+        if (ringRef.current) {
+            // Pulse effect
+            const s = 1.2 + Math.sin(state.clock.elapsedTime * 8) * 0.2;
+            ringRef.current.scale.set(s, s, s);
+            ringRef.current.rotation.z += 0.05;
+        }
+    });
+
+    return (
+        <group rotation={[-Math.PI/2, 0, 0]} position={[0, 0.02, 0]}>
+             <Ring args={[0.4, 0.5, 32]} ref={ringRef}>
+                 <meshBasicMaterial color="#00ff00" transparent opacity={0.6} side={THREE.DoubleSide} depthTest={false} />
+             </Ring>
+        </group>
+    );
+};
+
 // Draggable Cone Component
 const DraggableCone: React.FC<DraggableConeProps> = ({ 
   cone, 
   isSelected, 
+  isActive,
   mode,
   onMove, 
   onSelect 
@@ -66,6 +90,9 @@ const DraggableCone: React.FC<DraggableConeProps> = ({
 
   return (
     <group position={[cone.x, 0, cone.y]}>
+      {/* Highlight Effect if Active in Local Planner */}
+      {isActive && <ActiveScannerRing />}
+
       <mesh
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
@@ -79,12 +106,22 @@ const DraggableCone: React.FC<DraggableConeProps> = ({
            <coneGeometry args={[VISUALS.CONE_RADIUS, VISUALS.CONE_HEIGHT, 32]} />
         )}
         <meshStandardMaterial 
-          color={color} 
-          emissive={isSelected ? '#ffffff' : '#000000'}
-          emissiveIntensity={isSelected ? 0.5 : 0}
+          color={isActive ? '#00ff00' : color} 
+          emissive={isSelected ? '#ffffff' : (isActive ? '#00ff00' : '#000000')}
+          emissiveIntensity={isSelected ? 0.5 : (isActive ? 0.8 : 0)}
           roughness={0.3}
+          wireframe={isActive && !isSelected} // Cool scanner effect
         />
       </mesh>
+      
+      {/* Inner solid cone if active (since outer is wireframe) */}
+      {isActive && (
+          <mesh position={[0, VISUALS.CONE_HEIGHT/2, 0]}>
+             <coneGeometry args={[VISUALS.CONE_RADIUS * 0.8, VISUALS.CONE_HEIGHT * 0.8, 16]} />
+             <meshBasicMaterial color={color} opacity={0.7} transparent />
+          </mesh>
+      )}
+
       {/* Cone Base/Shadow fake */}
       <mesh position={[0, 0.01, 0]} rotation={[-Math.PI/2,0,0]}>
          <circleGeometry args={[VISUALS.CONE_RADIUS + 0.05, 16]} />
@@ -272,6 +309,7 @@ const TrackObjects: React.FC<TrackObjectsProps> = ({
   roadPath,
   racingPath,
   editorState,
+  activeConeIds,
   onConeMove,
   onConeSelect
 }) => {
@@ -286,6 +324,7 @@ const TrackObjects: React.FC<TrackObjectsProps> = ({
           key={cone.id} 
           cone={cone} 
           isSelected={editorState.selectedConeId === cone.id}
+          isActive={activeConeIds ? activeConeIds.has(cone.id) : false}
           mode={editorState.mode}
           onMove={onConeMove}
           onSelect={onConeSelect}

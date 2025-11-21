@@ -20,8 +20,10 @@ interface SceneProps {
   enableSuspension?: boolean;
   raceMode?: boolean;
   racePaths?: { laplacian: PathPoint[], qp: PathPoint[], rrt: PathPoint[] };
+  activeConeIds?: Set<string>; // IDs of cones currently "seen" by the Local Planner
   onConeMove: (id: string, x: number, z: number) => void;
   onConeSelect: (id: string | null) => void;
+  onCarUpdate?: (position: THREE.Vector3, direction: THREE.Vector3) => void;
 }
 
 // --- Dynamic Shadow System ---
@@ -117,8 +119,10 @@ const Scene3D: React.FC<SceneProps> = ({
   enableSuspension = false,
   raceMode = false,
   racePaths,
+  activeConeIds,
   onConeMove, 
-  onConeSelect
+  onConeSelect,
+  onCarUpdate
 }) => {
   // Strict camera control: Only enable orbit controls if specifically in ORBIT mode.
   // Other modes are driven programmatically by the Car component.
@@ -169,6 +173,7 @@ const Scene3D: React.FC<SceneProps> = ({
           roadPath={roadPath}
           racingPath={racingPath}
           editorState={editorState}
+          activeConeIds={activeConeIds}
           onConeMove={onConeMove}
           onConeSelect={onConeSelect}
         />
@@ -225,6 +230,7 @@ const Scene3D: React.FC<SceneProps> = ({
                     isNight={isNight}
                     isGhost={false}
                     enableSuspension={enableSuspension}
+                    onCarUpdate={onCarUpdate}
                 />
                 )}
 
