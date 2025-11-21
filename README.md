@@ -1,20 +1,186 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Path Planning Studio
 
-# Run and deploy your AI Studio app
+Advanced autonomous racing trajectory planner with cone-based tracks, RRT* + QP racing line optimisation, and real-time telemetry in a 3D scene.
 
-This contains everything you need to run your app locally.
+This repo contains a standalone front‑end built with React, TypeScript and Vite. It is designed for Formula Student / autonomous racing experiments, but can be reused for any cone‑based track.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1I5rzohGAX42yU2rns4jAJRrxZwjWCTDF
+---
 
-## Run Locally
+## Features
 
-**Prerequisites:**  Node.js
+- **Cone‑based track editor**
+  - Import track layouts from CSV (blue / yellow / orange cones).
+  - Edit cones directly in the 3D view (drag, move, re‑shape the circuit).
+  - Start / finish and car start cones supported.
 
+- **3D visualisation**
+  - `@react-three/fiber` + `three.js` rendering.
+  - Multiple camera modes: orbit, chase, cockpit, helicopter.
+  - Day / night toggle and simple world environment.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+- **Trajectory generation**
+  - Centerline generation from blue / yellow cones with dynamic track width.
+  - Conversion to a dense path (`PathPoint[]`) with curvature and arc‑length.
+  - Real‑time update of the path when cones are edited.
+
+- **Racing line optimisation (offline)**
+  Optimisers are implemented in `services/mathUtils.ts` and selectable from the UI:
+  - `Laplacian`: smooths the centerline with a simple Laplacian filter.
+  - `RRT` (RRT* shortcutting): stochastic search for shorter, valid shortcuts along the track.
+  - `QP` (biharmonic smoothing / minimum curvature): minimises curvature while staying inside the track.
+  - `Hybrid`: blends QP with Laplacian for a compromise between curvature and distance.
+  - `RRT_QP`: pipeline RRT* + QP (first shortcut, then smooth the result).
+  - `Local`: small‑horizon local planner around the car (5‑cone window) for more “online” behaviour.
+
+- **Simulation, ghost and telemetry**
+  - Car follows the selected trajectory with a simple longitudinal model (velocity, accel / brake).
+  - Ghost car showing the “fastest” precomputed RRT_QP lap.
+  - Live G‑G diagram (lateral vs longitudinal g).
+  - Velocity and g‑force charts along the lap using Recharts.
+
+---
+
+## Demo (GIFs)
+
+Create a `docs/` (or `assets/`) folder and export three GIFs from screen recordings of the app. The README assumes the following filenames; you can change them if you prefer.
+
+### 1. RRT* + QP racing line (main GIF)
+
+File: `docs/demo-rrtqp.gif`
+
+```markdown
+![RRT* + QP racing line](docs/demo-rrtqp.gif)
+```
+
+**Idea for the video**
+
+- Load one of your cone tracks.
+- Select the **RRT_QP** optimiser.
+- Enable the **ghost car** and **AI race mode**.
+- Show the car completing a full lap on the RRT* + QP racing line, with:
+  - the trajectory coloured by accel / brake,
+  - the G‑G diagram and speed chart updating on the side,
+  - a couple of camera changes (helicopter → chase → cockpit).
+
+This GIF is the “hero” demo of the project.
+
+---
+
+### 2. Track editor & centerline generation
+
+File: `docs/demo-editor.gif`
+
+```markdown
+![Track editor and centerline](docs/demo-editor.gif)
+```
+
+**Idea for the video**
+
+- Start from an empty (or very simple) track.
+- Import a CSV of cones or place a few cones manually.
+- Drag some cones to change the width and shape of a corner.
+- Show, in real time:
+  - the centerline being recomputed,
+  - the asphalt / road mesh updating,
+  - the baseline trajectory moving with your edits.
+- Finish by pressing play so the car drives one short section on the updated track.
+
+Goal: this GIF showcases the **interactive editor** and the link between cone layout and generated path.
+
+---
+
+### 3. Algorithm playground & telemetry
+
+File: `docs/demo-playground.gif`
+
+```markdown
+![Algorithm playground and telemetry](docs/demo-playground.gif)
+```
+
+**Idea for the video**
+
+- Load the same track and pick a fixed camera (helicopter or orbit).
+- Run several laps while switching optimiser mode:
+  - Lap 1: **Centerline / NONE** (no optimisation).
+  - Lap 2: **Laplacian**.
+  - Lap 3: **RRT**.
+  - Lap 4: **QP** or **Hybrid**.
+- Use the **AI race mode** and/or **ghost car** so differences are visible:
+  - show that RRT and RRT_QP cut corners more aggressively,
+  - show that QP / Hybrid give smoother, more “drivable” curvature.
+- Keep the G‑G diagram and charts visible to highlight the change in peak lateral g and braking zones.
+
+Goal: this GIF sells the **“algorithm lab”** aspect of the app.
+
+---
+
+## Getting started
+
+### Prerequisites
+
+- Node.js (recommended: 20.x or newer)
+- npm (comes with Node)
+
+### Install and run
+
+```bash
+# Install dependencies
+npm install
+
+# Run dev server (Vite)
+npm run dev
+```
+
+By default Vite serves on `http://localhost:5173` (or the port shown in your terminal).
+
+### Environment variables
+
+There is a `.env.local` file with:
+
+```bash
+GEMINI_API_KEY=PLACEHOLDER_API_KEY
+```
+
+Right now the UI does not call any external LLM, so you can leave this as a dummy value.  
+It is only wired into `vite.config.ts` as `process.env.GEMINI_API_KEY`.
+
+---
+
+## Project structure
+
+At the root of the repo:
+
+- `index.html` – Vite entry page, Tailwind CDN, fonts.
+- `index.tsx` – React entry point.
+- `App.tsx` – main application container, view routing, state management.
+- `components/`
+  - `Scene3D.tsx` – 3D scene, cones, paths, car and cameras.
+  - `Car.tsx` – car model, kinematics and suspension / body roll effects.
+  - `TrackObjects.tsx` – cone meshes and track geometry.
+  - `UIOverlay.tsx` – controls, charts, G‑G diagram and HUD.
+  - `LandingPage.tsx` – landing / home page with track selector.
+  - `AlgorithmsPage.tsx` – explanatory view for optimisation modes.
+  - `SimulationsPage.tsx` – space for more scenario‑based demos.
+- `services/`
+  - `mathUtils.ts` – CSV parsing, centerline and all trajectory optimisers (Laplacian, RRT*, QP, Hybrid, RRT_QP, Local).
+- `types.ts` – shared TypeScript types (cones, paths, metadata, cameras, optimiser modes).
+- `constants.ts` – physics parameters and visual colours for cones / paths.
+- `vite.config.ts` – Vite configuration and environment variable mapping.
+- `package.json` – dependencies and npm scripts.
+
+---
+
+## Typical workflow
+
+1. Start the dev server (`npm run dev`).
+2. On the landing page, choose or import a track (CSV of blue / yellow / orange cones).
+3. Adjust the layout in the editor if needed (drag cones, tweak corners).
+4. Select an optimiser (NONE / Laplacian / RRT / QP / Hybrid / RRT_QP / Local).
+5. Enable ghost and AI race mode if you want comparisons.
+6. Press play to launch a lap and inspect:
+   - the trajectory in 3D,
+   - the G‑G diagram,
+   - the longitudinal charts.
+
+Record your screen for the three scenarios described in the **Demo** section and export them as GIFs to complete the README.
+
