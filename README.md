@@ -48,46 +48,17 @@ Create a `docs/` (or `assets/`) folder and export three GIFs from screen recordi
 
 File: `docs/demo-rrtqp.gif`
 
-```markdown
+
 ![RRT* + QP racing line](docs/demo-rrtqp.gif)
-```
 
-**Idea for the video**
 
-- Load one of your cone tracks.
-- Select the **RRT_QP** optimiser.
-- Enable the **ghost car** and **AI race mode**.
-- Show the car completing a full lap on the RRT* + QP racing line, with:
-  - the trajectory coloured by accel / brake,
-  - the G-G diagram and speed chart updating on the side,
-  - a couple of camera changes (helicopter → chase → cockpit).
-
-This GIF is the “hero” demo of the project.
-
----
-
-### 2. Track editor & centerline generation
+### 2. Track editor 
 
 File: `docs/demo-editor.gif`
 
-```markdown
+
 ![Track editor and centerline](docs/demo-editor.gif)
-```
 
-**Idea for the video**
-
-- Start from an empty (or very simple) track.
-- Import a CSV of cones or place a few cones manually.
-- Drag some cones to change the width and shape of a corner.
-- Show, in real time:
-  - the centerline being recomputed,
-  - the asphalt / road mesh updating,
-  - the baseline trajectory moving with your edits.
-- Finish by pressing play so the car drives one short section on the updated track.
-
-Goal: this GIF showcases the **interactive editor** and the link between cone layout and generated path.
-
----
 
 ### 3. Site overview / UI tour
 
@@ -96,22 +67,6 @@ File: `docs/demo-site.gif`
 
 ![Path Planning Studio – site overview](docs/demo-site.gif)
 
-
-**Idea for the video**
-
-- Start on the **landing page**:
-  - briefly show the project name and the main call-to-action.
-- Load a track from CSV or pick an example track.
-- In a single smooth sequence:
-  - show the 3D scene with cones and the centerline,
-  - open the side panel with optimiser / simulation settings,
-  - switch camera modes once (e.g. orbit → chase),
-  - start a lap and let the car drive a few corners.
-- Keep the HUD visible (speed, g-forces, charts) so visitors understand that:
-  - the app is interactive,
-  - multiple views and tools exist in the same interface.
-
-Goal: this GIF is a **high-level product tour** that quickly shows what the site looks like and what you can do with it.
 
 ---
 
